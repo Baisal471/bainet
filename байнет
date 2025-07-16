@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Bainet — Жёлтая Сеть</title>
+  <style>
+    * { box-sizing: border-box; font-family: sans-serif; }
+    body {
+      margin: 0; background: #fffde7; color: #333; display: flex; height: 100vh; flex-direction: column;
+    }
+    header {
+      background: #fff176; padding: 10px; text-align: center;
+      font-size: 24px; font-weight: bold; border-bottom: 2px solid #fbc02d;
+    }
+    #auth, #app { flex: 1; display: none; }
+    main { display: flex; flex: 1; }
+    aside, .main, .chat {
+      padding: 15px; overflow-y: auto; height: calc(100vh - 60px);
+    }
+    aside { width: 250px; background: #fff9c4; border-right: 2px solid #fbc02d; }
+    .main { flex: 2; background: #fffde7; border-right: 2px solid #fbc02d; }
+    .chat { width: 300px; background: #fff9c4; }
+    input, textarea {
+      width: 100%; margin-bottom: 10px; padding: 8px; border-radius: 6px; border: 1px solid #ccc;
+    }
+    button {
+      background: #fdd835; border: none; padding: 10px; cursor: pointer;
+      width: 100%; border-radius: 6px; font-weight: bold;
+    }
+    button:hover { background: #fbc02d; }
+    .profile img {
+      width: 100%; border-radius: 10px; margin-bottom: 10px;
+    }
+    .announcement {
+      background: #fff; border: 1px solid #fbc02d; border-radius: 8px; padding: 10px; margin-bottom: 10px;
+    }
+    .chat-messages {
+      max-height: 70vh; overflow-y: auto; margin-bottom: 10px;
+    }
+    .chat-message {
+      background: #fff; margin-bottom: 8px; padding: 6px 8px; border-radius: 6px; border-left: 4px solid #fbc02d;
+    }
+    h2 { margin-top: 0; }
+    .error { color: red; font-size: 0.9em; margin-bottom: 10px; }
+    select {
+      width: 100%; margin-bottom: 10px; padding: 8px; border-radius: 6px; border: 1px solid #ccc;
+    }
+  </style>
+</head>
+<body>
+
+<header>Bainet — Жёлтая Социальная Сеть</header>
+
+<div id="auth">
+  <h2>Вход / Регистрация</h2>
+  <div id="errorAuth" class="error"></div>
+  <input type="text" id="loginUsername" placeholder="Имя пользователя" />
+  <input type="password" id="loginPassword" placeholder="Пароль" />
+  <button onclick="login()">Войти</button>
+  <hr />
+  <h3>Регистрация нового пользователя</h3>
+  <input type="text" id="regUsername" placeholder="Имя пользователя" />
+  <input type="password" id="regPassword" placeholder="Пароль" />
+  <input type="password" id="regPasswordConfirm" placeholder="Подтвердите пароль" />
+  <input type="text" id="regAvatar" placeholder="URL аватара (опционально)" />
+  <button onclick="register()">Зарегистрироваться</button>
+</div>
+
+<div id="app">
+  <main>
+    <aside>
+      <h2>Профиль</h2>
+      <div class="profile">
+        <img id="profileAvatar" src="https://via.placeholder.com/200x150" alt="Аватар" />
+        <input type="text" id="profileName" placeholder="Ваше имя" />
+        <textarea id="profileStatus" placeholder="О себе..."></textarea>
+        <input type="text" id="profileAvatarUrl" placeholder="URL аватара" />
+        <button onclick="saveProfile()">Сохранить профиль</button>
+        <button onclick="logout()" style="margin-top:10px; background:#f44336; color:white;">Выйти</button>
+      </div>
+    </aside>
+
+    <section class="main">
+      <h2>Объявления</h2>
+      <div id="announcements">
+        <div class="announcement"><strong>@BainetAdmin:</strong> Добро пожаловать в Bainet! Публикуйте, общайтесь, будьте собой.</div>
+        <div class="announcement"><strong>@News:</strong> Новый дизайн и жёлтая тема добавлены!</div>
+      </div>
+
+      <h2>Публикация</h2>
+      <textarea id="newPostContent" placeholder="Что у вас нового?" style="width:100%;height:80px;"></textarea>
+      <button onclick="publishPost()">Опубликовать</button>
+      <div id="feed"></div>
+    </section>
+
+    <section class="chat">
+      <h2>Чат с друзьями</h2>
+      <select id="chatUsersSelect" onchange="loadChat()"></select>
+      <div class="chat-messages" id="chatMessages"></div>
+      <input type="text" id="chatInput" placeholder="Напишите сообщение..." onkeydown="if(event.key==='Enter') sendMessage()" />
+      <button onclick="sendMessage()">Отправить</button>
+    </section>
+  </main>
+</div>
+
+<script>
+  // Работа с LocalStorage для пользователей, сообщений, постов
+
+  let currentUser = null;
+
+  // Загрузка из LocalStorage или инициализация
+  let users = JSON.parse(localStorage.getItem('bainet_users')) || {};
+  let posts = JSON.parse(localStorage.getItem('bainet_posts')) || [];
+  let messages = JSON.parse(localStorage.getItem('bainet_messages')) || {};
+
+  function saveData() {
+    localStorage.setItem('bainet_users', JSON.stringify(users));
+    localStorage.setItem('bainet_posts', JSON.stringify(posts));
+    localStorage.setItem('bainet_messages', JSON.stringify(messages));
+  }
+
+  function showError(msg) {
+    const errDiv = document.getElementById('errorAuth');
+    errDiv.textContent = msg;
+  }
+
+  // Регистрация
+  function register() {
+    showError('');
+    const username = document.getElementById('regUsername').value.trim();
+    const password = document.getElementById('regPassword').value;
+    const passwordConfirm = document.getElementById('regPasswordConfirm').value;
+    const avatar = document.getElementById('regAvatar').value.trim() || 'https://via.placeholder.com/200x150';
+
+    if (!username || !password || !passwordConfirm) {
+      showError('Пожалуйста, заполните все поля для регистрации.');
+      return;
+    }
+    if (password !== passwordConfirm) {
+      showError('Пароли не совпадают.');
+      return;
+    }
+    if (users[username]) {
+      showError('Пользователь с таким именем уже существует.');
+      return;
+    }
+    users[username] = {
+      password,
+      avatar,
+      status: '',
+      name: username
+    };
+    saveData();
+    alert('Регистрация успешна! Теперь войдите.');
+    // Очистка полей регистрации
+    document.getElementById('regUsername').value = '';
+    document.getElementById('regPassword').value = '';
+    document.getElementById('regPasswordConfirm').value = '';
+    document.getElementById('regAvatar').value = '';
+  }
+
+  // Вход
+  function login() {
+    showError('');
+    const username = document.getElementById('loginUsername').value.trim();
+    const password = document.getElementById('loginPassword').value;
+
+    if (!username || !password) {
+      showError('Пожалуйста, заполните все поля для входа.');
+      return;
+    }
+    if (!users[username] || users[username].password !== password) {
+      showError('Неверный логин или пароль.');
+      return;
+    }
+    currentUser = username;
+    document.getElementById('auth').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    loadProfile();
+    loadFeed();
+    loadChatUsers();
+  }
+
+  // Выход
+  function logout() {
+    currentUser = null;
+    document.getElementById('app').style.display = 'none';
+    document.getElementById('auth').style.display = 'block';
+    // Очистка полей входа
+    document.getElementById('loginUsername').value = '';
+    document.getElementById('loginPassword').value = '';
+    showError('');
+  }
+
+  // Загрузка профиля текущего пользователя
+  function loadProfile() {
+    const user = users[currentUser];
+    document.getElementById('profileName').value = user.name || currentUser;
+    document.getElementById('profileStatus').value = user.status || '';
+    document.getElementById('profileAvatarUrl').value = user.avatar || 'https://via.placeholder.com/200x150';
+    document.getElementById('profileAvatar').src = user.avatar || 'https://via.placeholder.com/200x150';
+  }
+
+  // Сохранение профиля
+  function saveProfile() {
+    const name = document.getElementById('profileName').value.trim() || currentUser;
+    const status = document.getElementById('profileStatus').value.trim();
+    const avatar = document.getElementById('profileAvatarUrl').value.trim() || 'https://via.placeholder.com/200x150';
+
+    users[currentUser].name = name;
+    users[currentUser].status = status;
+    users[currentUser].avatar = avatar;
+    saveData();
+    loadProfile();
+    alert('Профиль сохранён!');
+    loadFeed(); // чтобы обновить имя в постах
+  }
+
+  // Публикация поста
+  function publishPost() {
+    const content = document.getElementById('newPostContent').value.trim();
+    if (!content) return alert('Введите текст поста.');
+
+    posts.unshift({
+      author: currentUser,
+      content,
+      date: new Date().toISOString()
+    });
+    saveData();
+    document.getElementById('newPostContent').value = '';
+    loadFeed();
+  }
+
+  // Загрузка ленты постов
+  function loadFeed() {
+    const feed = document.getElementById('feed');
+    feed.innerHTML = '';
+    if(posts.length === 0) {
+      feed.innerHTML = '<p>Пока нет публикаций.</p>';
+      return;
+    }
+    posts.forEach(post => {
+      const user = users[post.author];
+      const postDiv = document.createElement('div');
+      postDiv.className = 'announcement';
+      const date = new Date(post.date);
+      postDiv.innerHTML = `
+        <strong>@${user.name || post.author}</strong> <small style="color:#888;">[${date.toLocaleString()}]</small><br/>
+        ${escapeHtml(post.content)}
+      `;
+      feed.appendChild(postDiv);
+    });
+  }
+
+  // Экранирование HTML (безопасность)
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.appendChild(document.createTextNode(text));
+    return div.innerHTML;
+  }
+
+  // Загрузка списка друзей (все пользователи кроме текущего)
+  function loadChatUsers() {
+    const select = document.getElementById('chatUsersSelect');
+    select.innerHTML = '';
+    for(const user in users){
+      if(user !== currentUser){
+        const option = document.createElement('option');
+        option.value = user;
+        option.textContent = users[user].name || user;
+        select.appendChild(option);
+      }
+    }
+    if(select.options.length > 0){
+      select.selectedIndex = 0;
+      loadChat();
+    } else {
+      document.getElementById('chatMessages').innerHTML = '<p>Нет друзей для чата.</p>';
+    }
+  }
+
+  // Загрузка сообщений с выбранным пользователем
+  function loadChat() {
+    const friend = document.getElementById('chatUsersSelect').value;
+    const chatBox = document.getElementById('chatMessages');
+    chatBox.innerHTML = '';
+    if(!friend) {
+      chatBox.innerHTML = '<p>Выберите друга для чата.</p>';
+      return;
+    }
+
+    const chatKey = getChatKey(currentUser, friend);
+    const chatMessages = messages[chatKey] || [];
+
+    chatMessages.forEach(msg => {
+      const msgDiv = document.createElement('div');
+      msgDiv.className = 'chat-message';
+      msgDiv.innerHTML = `<strong>${msg.sender === currentUser ? 'Вы' : users[msg.sender].name || msg.sender}:</strong> ${escapeHtml(msg.text)}`;
+      chatBox.appendChild(msgDiv);
+    });
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }
+
+  // Отправка сообщения
+  function sendMessage() {
+    const friend = document.getElementById('chatUsersSelect').value;
+    const input = document.getElementById('chatInput');
+    const text = input.value.trim();
+    if(!friend || !text) return;
+
+    const chatKey = getChatKey(currentUser, friend);
+    if(!messages[chatKey]) messages[chatKey] = [];
+
+    messages[chatKey].push({
+      sender: currentUser,
+      text,
+      date: new Date().toISOString()
+    });
+
+    saveData();
+    input.value = '';
+    loadChat();
+  }
+
+  // Генерируем ключ для чата между двумя пользователями (в алфавитном порядке)
+  function getChatKey(user1, user2) {
+    return [user1, user2].sort().join('_');
+  }
+
+  // При загрузке страницы показываем форму входа
+  window.onload = function() {
+    if(currentUser){
+      document.getElementById('auth').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      loadProfile();
+      loadFeed();
+      loadChatUsers();
+    } else {
+      document.getElementById('auth').style.display = 'block';
+      document.getElementById('app').style.display = 'none';
+    }
+  };
+</script>
+
+</body>
+</html>
